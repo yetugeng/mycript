@@ -1,0 +1,155 @@
+# ENSURE VARS:
+user=root
+Inet=eth1
+JAVA_HOME=
+operatorKey=xb
+user_home=$HOME
+
+# START:
+cd $user_home
+
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+DATESTAMP=$(date +"%Y%m%d")
+
+if test ! -d "/var/log/check/sysInfo/${DATESTAMP}";then
+   echo "/var/log/check/sysInfo/${DATESTAMP"
+   #mkdir -p /var/log/check/sysInfo/${DATESTAMP}
+fi
+
+LOGFILE=/var/log/check/sysInfo/${DATESTAMP}/ck_${TIMESTAMP}.html
+exec 2>&1 >> ${LOGFILE}
+
+# html begin
+echo '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/1999/REC-html401-19991224/strict.dtd">
+<html>
+<head>
+<META http-equiv=Content-Type content="text/html; charset=UTF-8">'
+
+echo "<title>${operatorKey} app Status Check</title>"
+
+echo '<style type="text/css">
+span {
+	font-family: 'Courier New';
+	font-size: 12pt;
+	color: #EEEBBB;
+}
+.sc0 {
+}
+</style>
+</head>
+<body>
+<div style="float: left; white-space: pre; line-height: 1; background: #000000; ">
+<span class="sc0">'
+
+# netstat
+echo '====== normal conn_detail ======'
+netstat -ant|awk '/^tcp/ {++state[$NF]} END {for(i in state) print i,"\t",state[i]}'
+echo ""
+
+# 8080 CONN ESTABLISHED
+echo '====== 8080 conn_detail ======'
+#netstat -ant|grep -w 8080|grep -v grep |wc -l
+netstat -ant|grep -w 8080|grep -v grep |awk '/^tcp/ {++state[$NF]} END {for(i in state) print i,"\t",state[i]}'
+echo ""
+
+# socket 6000 CONN ESTABLISHED
+# echo '====== socket 6000 conn_detail ======'
+# netstat -ant|grep -w 6000|grep -v grep |awk '/^tcp/ {++state[$NF]} END {for(i in state) print i,"\t",state[i]}'
+# echo ""
+
+# check 8080|8081|8082|8086
+echo '====== ensure app ports ======'
+netstat -lnt|grep -E '8080|8081|8082|8086'|grep -v grep
+echo ""
+
+
+# network Receive and Transmit bytes;
+# minutes
+time_interval=5
+# Inet=eth0
+echo "============ Inet_${Inet}_info =========="
+
+if test ! -f "/tmp/new.txt" ;then
+    cat /proc/net/dev|grep -w ${Inet}|awk '{print $2"\n"$10}' > /tmp/new.txt
+    yes|cp -f /tmp/new.txt /tmp/old.txt
+else
+    yes|cp -f /tmp/new.txt /tmp/old.txt
+    cat /proc/net/dev|grep -w ${Inet}|awk '{print $2"\n"$10}' > /tmp/new.txt
+    RO=`head -n 1 /tmp/old.txt`;TO=`tail -n 1 /tmp/old.txt`;
+    RN=`head -n 1 /tmp/new.txt`;TN=`tail -n 1 /tmp/new.txt`;
+    let R=$RN-$RO;let T=$TN-$TO;
+    scale=3;DIV=$((${time_interval}*60*1024));
+    #R_AVG=`echo "scale=3;$R / $DIV" | bc`
+    R_AVG=`awk -v var1=$R -v var2=$DIV 'BEGIN{printf("%.3f",var1/var2)}'`
+    #T_AVG=`echo "scale=3;$T / $DIV" | bc`
+    T_AVG=`awk -v var1=$T -v var2=$DIV 'BEGIN{printf("%.3f",var1/var2)}'`
+    echo -e "R:$R\nT:$T\nR_AVG:$R_AVG\nT_AVG:$T_AVG\nDIV:$DIV"
+    echo -e "Incoming rates: ${R_AVG} kbytes/sec\nOutgoing rates: ${T_AVG} kbytes/sec"
+fi
+
+echo ""
+# netstat
+
+#iftop
+iftop  -Pp -Nn -t -L 100 -s 3
+echo ""
+
+# top
+echo '====== top ======'
+top -bn 1|head -n 7
+top -bn 1|sed -n '8,$p'|sort -n -k 9 -r|head -n 10
+echo ""
+
+# free
+echo '====== memory status ======'
+free -m
+echo ""
+
+# cpu
+echo '====== cpu load ======'
+w
+echo ""
+
+# disk io
+echo '====== io load ======'
+iostat -c -x -m  -N -d 3 3
+echo ""
+
+# disk space used info
+echo '====== disc space used ======'
+df -h
+echo ""
+
+# glassfish jvm collection
+# vi ~/check/gc.sh
+##/bin/bash
+# export PATH=${JAVA_HOME}/bin:$PATH:$HOME/bin
+# PNUM=$(jps -lv|grep -w glassfish|grep -v grep|cut -d ' ' -f 1)
+# echo '====== glassfish jvm heap info ======'
+# jmap -heap $PNUM
+# echo '====== glassfish jvm gc info ======'
+# jstat -gcutil $PNUM 10s 3
+
+# call gc.sh
+
+# $user_home/check/gc.sh &>/tmp/gc.txt
+# cat /tmp/gc.txt
+
+# 计算FGCT/FGC的平均时间：
+#
+# echo ""
+# echo "====== Glassfish FGCT one time ======"
+# sed -n '5p' /tmp/gc.txt | awk 'BEGIN{a=13;c=0} {c=($(NF-1)/$(NF-2)+c); print "Glassfish jvm FGCT one time spend ",c," seconds."} END{if(a > c) {print "FGCT less than 13 seconds one time. "} else {print "FGCT granter than 13 seconds one time."}}'
+# echo ""
+
+
+# html end;
+echo '</span></div></body>
+</html>
+'
+
+# del outdate checked log files;
+#find /home/${user}/check/logs/sysInfo/* -maxdepth 2 -type f -ctime +2 -exec rm -rf {} \;
+find /var/log/check/sysInfo/* -maxdepth 0 -type d -ctime +1 -exec rm -rf {} \; > /dev/null
+
+# END
